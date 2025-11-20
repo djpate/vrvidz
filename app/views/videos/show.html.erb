@@ -1,0 +1,166 @@
+<div id="start-screen">
+    <h1>360 VR Experience</h1>
+    <button id="start-btn">Enter Experience</button>
+</div>
+
+<canvas id="renderCanvas"></canvas>
+<style>
+  #renderCanvas { width: 100%; height: 100%; touch-action: none; }
+        
+  /* Initial overlay to force user interaction (Needed for iOS Gyro/Video) */
+  #start-screen {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center;
+      z-index: 10; color: white; font-family: sans-serif; cursor: pointer;
+      flex-direction: column;
+  }
+  #start-btn {
+      padding: 15px 30px; font-size: 20px; background: white; color: black; border: none; border-radius: 5px; margin-top: 20px;
+  }
+</style>
+<script>
+        const canvas = document.getElementById("renderCanvas");
+        const engine = new BABYLON.Engine(canvas, true);
+        const startScreen = document.getElementById("start-screen");
+        const startBtn = document.getElementById("start-btn");
+
+        // Variable to track video manually
+        let globalVideo = null;
+
+        const createScene = async function () {
+            const scene = new BABYLON.Scene(engine);
+
+            // --- 1. GYROSCOPE CAMERA (Magic Window) ---
+            // This camera uses the device gyroscope on mobile, and drag-to-pan on desktop.
+            const camera = new BABYLON.DeviceOrientationCamera("DevOr_camera", new BABYLON.Vector3(0, 0, 0), scene);
+            camera.attachControl(canvas, true);
+            // Default sensitivity adjustment
+            camera.angularSensibility = 1000; 
+
+            // --- 2. VIDEO SPHERE ---
+            const videoDome = new BABYLON.VideoDome(
+                "videoDome",
+                "/videos/<%= @filename %>",
+                {
+                    resolution: 32,
+                    clickToPlay: false, // We handle play manually
+                    autoPlay: false,
+                    size: 1000
+                },
+                scene
+            );
+            globalVideo = videoDome.videoTexture.video;
+            globalVideo.setAttribute("crossorigin", "anonymous");
+            globalVideo.setAttribute("playsinline", "true");
+
+            // --- 3. THE FADING UI ---
+            
+            // Create the 3D Plane
+            const plane = BABYLON.MeshBuilder.CreatePlane("plane", {width: 3, height: 1}, scene);
+            plane.position = new BABYLON.Vector3(0, -1, 3); // Slightly lower, in front
+            plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL; // Always face user
+
+            const advancedTexture = BABYLON.GUI.AdvancedDynamicTexture.CreateForMesh(plane);
+            
+            // Main Panel
+            const panel = new BABYLON.GUI.StackPanel();
+            advancedTexture.addControl(panel);
+
+            // Play Button
+            const playBtn = BABYLON.GUI.Button.CreateSimpleButton("playBtn", "▶ Play");
+            playBtn.width = "150px"; playBtn.height = "60px";
+            playBtn.color = "white"; playBtn.background = "#222";
+            playBtn.cornerRadius = 20; playBtn.fontSize = 30;
+            playBtn.onPointerUpObservable.add(() => {
+                if (globalVideo.paused) {
+                    globalVideo.play();
+                    playBtn.textBlock.text = "⏸ Pause";
+                } else {
+                    globalVideo.pause();
+                    playBtn.textBlock.text = "▶ Play";
+                }
+            });
+            panel.addControl(playBtn);
+
+            // Slider
+            const slider = new BABYLON.GUI.Slider();
+            slider.minimum = 0; slider.value = 0;
+            slider.height = "40px"; slider.width = "90%";
+            slider.color = "#00FF00"; slider.background = "#444";
+            slider.onValueChangedObservable.add((value) => {
+                if (Math.abs(globalVideo.currentTime - value) > 1) globalVideo.currentTime = value;
+            });
+            panel.addControl(slider);
+
+            // --- 4. FADE LOGIC (The Magic Part) ---
+            
+            let lastInteraction = Date.now();
+            let isMenuVisible = true;
+
+            // A. Detect Interaction
+            scene.onPointerObservable.add(() => {
+                lastInteraction = Date.now();
+                if (!isMenuVisible) {
+                    // Fade In
+                    fadeInUI();
+                }
+            });
+
+            // B. Animation Helpers
+            const fadeInUI = () => {
+                isMenuVisible = true;
+                plane.isPickable = true; // Enable clicking
+                BABYLON.Animation.CreateAndStartAnimation("fadeIn", plane, "visibility", 30, 15, plane.visibility, 1, 0);
+            };
+
+            const fadeOutUI = () => {
+                isMenuVisible = false;
+                plane.isPickable = false; // Disable clicking so it doesn't block view
+                BABYLON.Animation.CreateAndStartAnimation("fadeOut", plane, "visibility", 30, 15, plane.visibility, 0, 0);
+            };
+
+            // C. Check Loop
+            scene.registerBeforeRender(() => {
+                // Sync Slider
+                if (globalVideo && !globalVideo.paused) {
+                    slider.value = globalVideo.currentTime;
+                }
+
+                // Check Idle Time (3000ms = 3 seconds)
+                if (isMenuVisible && Date.now() - lastInteraction > 3000) {
+                    // Only fade out if video is actually playing (don't hide controls if paused!)
+                    if (!globalVideo.paused) {
+                        fadeOutUI();
+                    }
+                }
+            });
+
+            // D. Metadata Load
+            globalVideo.addEventListener('loadedmetadata', () => { slider.maximum = globalVideo.duration; });
+
+
+            // --- 5. XR (VR Headset Support) ---
+            try {
+                const xr = await scene.createDefaultXRExperienceAsync({ uiOptions: { sessionMode: "immersive-vr" } });
+            } catch(e) { console.log("VR not available"); }
+
+            return scene;
+        };
+
+        // --- INITIALIZATION ---
+        // We wait for user click to init engine to handle iOS Permissions
+        startBtn.addEventListener("click", async () => {
+            startScreen.style.display = "none";
+            
+            // Create scene
+            const scene = await createScene();
+            
+            // Start loop
+            engine.runRenderLoop(() => scene.render());
+            
+            // Try to play video immediately
+            if(globalVideo) globalVideo.play();
+        });
+
+        window.addEventListener("resize", () => engine.resize());
+    </script>
