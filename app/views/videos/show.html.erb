@@ -1,166 +1,188 @@
-<div id="start-screen">
-    <h1>360 VR Experience</h1>
-    <button id="start-btn">Enter Experience</button>
-</div>
-
-<canvas id="renderCanvas"></canvas>
-<style>
-  #renderCanvas { width: 100%; height: 100%; touch-action: none; }
-        
-  /* Initial overlay to force user interaction (Needed for iOS Gyro/Video) */
-  #start-screen {
-      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-      background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center;
-      z-index: 10; color: white; font-family: sans-serif; cursor: pointer;
-      flex-direction: column;
-  }
-  #start-btn {
-      padding: 15px 30px; font-size: 20px; background: white; color: black; border: none; border-radius: 5px; margin-top: 20px;
-  }
-</style>
 <script>
-        const canvas = document.getElementById("renderCanvas");
-        const engine = new BABYLON.Engine(canvas, true);
-        const startScreen = document.getElementById("start-screen");
-        const startBtn = document.getElementById("start-btn");
+  // Helper: Formats seconds into MM:SS
+  function formatTime(time) {
+    const minutes = Math.floor(time / 60);
+    const seconds = Math.floor(time % 60);
+    return (minutes < 10 ? '0' + minutes : minutes) + ':' + 
+            (seconds < 10 ? '0' + seconds : seconds);
+  }
 
-        // Variable to track video manually
-        let globalVideo = null;
+  AFRAME.registerComponent('video-controls', {
+    schema: {
+      video: { type: 'selector' },
+      hand: { type: 'selector' } // We will pass the controller in here
+    },
+    init: function () {
+      const video = this.data.video;
+      const playBtn = this.el.querySelector('.play-btn');
+      const playBtnText = this.el.querySelector('.play-btn-text');
+      const progressBar = this.el.querySelector('.progress-bar');
+      const seekHitbox = this.el.querySelector('.seek-hitbox');
+      const timeElapsed = this.el.querySelector('.time-elapsed');
+      const timeRemaining = this.el.querySelector('.time-remaining');
+      
+      // MOVEMENT TRACKING VARIABLES
+      this.timer = 0;
+      this.lastPosition = new THREE.Vector3();
+      this.lastRotation = new THREE.Quaternion();
+      // We track the camera as a fallback for desktop testing
+      this.camera = document.querySelector('a-camera');
 
-        const createScene = async function () {
-            const scene = new BABYLON.Scene(engine);
+      // 1. PLAY/PAUSE
+      playBtn.addEventListener('click', () => {
+        if (video.paused) {
+          video.play();
+          playBtnText.setAttribute('value', 'PAUSE');
+        } else {
+          video.pause();
+          playBtnText.setAttribute('value', 'PLAY');
+        }
+      });
 
-            // --- 1. GYROSCOPE CAMERA (Magic Window) ---
-            // This camera uses the device gyroscope on mobile, and drag-to-pan on desktop.
-            const camera = new BABYLON.DeviceOrientationCamera("DevOr_camera", new BABYLON.Vector3(0, 0, 0), scene);
-            camera.attachControl(canvas, true);
-            // Default sensitivity adjustment
-            camera.angularSensibility = 1000; 
+      // 2. SEEK LOGIC
+      seekHitbox.addEventListener('click', (e) => {
+        const point = e.detail.intersection.point;
+        const objectPosition = seekHitbox.object3D.getWorldPosition(new THREE.Vector3());
+        const localX = point.x - objectPosition.x;
+        const clickPercent = (localX + 1.5) / 3;
+        const clampedPercent = Math.max(0, Math.min(1, clickPercent));
+        if (video.duration) {
+          video.currentTime = clampedPercent * video.duration;
+        }
+      });
 
-            // --- 2. VIDEO SPHERE ---
-            const videoDome = new BABYLON.VideoDome(
-                "videoDome",
-                "/videos/<%= @filename %>",
-                {
-                    resolution: 32,
-                    clickToPlay: false, // We handle play manually
-                    autoPlay: false,
-                    size: 1000
-                },
-                scene
-            );
-            globalVideo = videoDome.videoTexture.video;
-            globalVideo.setAttribute("crossorigin", "anonymous");
-            globalVideo.setAttribute("playsinline", "true");
+      // 3. MAIN LOOP (Runs 90 times per second)
+     this.tick = function (t, dt) {
+        // --- A. INTELLIGENT TRACKING SWITCHER ---
+        // default to Camera (for desktop mouse testing)
+        let tracker = this.camera.object3D; 
+        
+        // If we are in VR Mode and the Hand is loaded, switch to Hand tracking
+        // We check if the scene is in 'vr-mode' (user clicked the goggles button)
+        if (this.el.sceneEl.is('vr-mode') && this.data.hand && this.data.hand.object3D) {
+            tracker = this.data.hand.object3D;
+        }
 
-            // --- 3. THE FADING UI ---
+        const currentPos = tracker.position;
+        const currentRot = tracker.quaternion;
+
+        // Calculate how much we moved/rotated
+        const dist = currentPos.distanceTo(this.lastPosition);
+        const rotDiff = currentRot.angleTo(this.lastRotation);
+
+        // --- B. THRESHOLD LOGIC ---
+        // We use a slightly higher threshold (0.002) to filter out "jitter" from human hands
+        if (dist > 0.002 || rotDiff > 0.002) {
+            // MOVEMENT DETECTED
+            this.timer = 0;
+            this.el.setAttribute('visible', 'true');
+            this.lastPosition.copy(currentPos);
+            this.lastRotation.copy(currentRot);
+        } else {
+            // STILLNESS DETECTED
+            this.timer += dt;
+            if (this.timer > 3000 && this.el.getAttribute('visible')) {
+              this.el.setAttribute('visible', 'false');
+            }
+        }
+
+        // --- C. VIDEO UPDATE (Same as before) ---
+        if (video.duration) {
+          const percent = video.currentTime / video.duration;
+          progressBar.setAttribute('scale', `${percent} 1 1`);
+          const newX = -1.5 + (1.5 * percent);
+          progressBar.setAttribute('position', `${newX} 0 0.02`);
+
+          const currStr = formatTime(video.currentTime);
+          const remStr = "-" + formatTime(video.duration - video.currentTime);
+          
+          if (timeElapsed.getAttribute('value') !== currStr) {
+            timeElapsed.setAttribute('value', currStr);
+            timeRemaining.setAttribute('value', remStr);
+          }
+        }
+      }
+    }
+  });
+</script>
+<a-scene>
+  <a-assets>
+    <video id="my-video" 
+            src="/videos/<%= @filename %>"
+            crossorigin="anonymous" loop="true"></video>
+  </a-assets>
+
+  <a-videosphere src="#my-video" rotation="0 -90 0"></a-videosphere>
+
+  <a-entity video-controls="video: #my-video" position="0 1.3 -2" rotation="-15 0 0">
+
+    <a-box class="back-btn" 
+            width="0.5" height="0.5" depth="0.05"
+            material="color: #222; opacity: 0.8; transparent: true; roughness: 0.2"
+            position="-1.25 0.6 0">
+            <a-text value="<" font="kelsonsans" align="center" width="5" color="#FFFFFF" position="0 0.02 0.06"></a-text>
+    </a-box>
+    
+    <a-box class="play-btn" 
+            width="1.2" height="0.5" depth="0.05"
+            material="color: #222; opacity: 0.8; transparent: true; roughness: 0.2"
+            position="0 0.6 0">
             
-            // Create the 3D Plane
-            const plane = BABYLON.MeshBuilder.CreatePlane("plane", {width: 3, height: 1}, scene);
-            plane.position = new BABYLON.Vector3(0, -1, 3); // Slightly lower, in front
-            plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL; // Always face user
+            <a-text class="play-btn-text"
+                      value="PLAY"
+                      font="kelsonsans"
+                      align="center"
+                      width="1.1"
+                      wrap-count="14"
+                      color="#FFFFFF"
+                      position="0 0 0.06"
+                      transparent="false"
+                      alpha-test="0.5">
+            </a-text>
+    </a-box>
 
-            const advancedTexture = BABYLON.GUI.AdvancedDynamicTexture.CreateForMesh(plane);
-            
-            // Main Panel
-            const panel = new BABYLON.GUI.StackPanel();
-            advancedTexture.addControl(panel);
+    <a-box class="seek-bar-bg"
+              width="3" height="0.3" depth="0.03"
+              material="color: #222; opacity: 0.5; transparent: true"
+              position="0 0 0">
+    </a-box>
 
-            // Play Button
-            const playBtn = BABYLON.GUI.Button.CreateSimpleButton("playBtn", "▶ Play");
-            playBtn.width = "150px"; playBtn.height = "60px";
-            playBtn.color = "white"; playBtn.background = "#222";
-            playBtn.cornerRadius = 20; playBtn.fontSize = 30;
-            playBtn.onPointerUpObservable.add(() => {
-                if (globalVideo.paused) {
-                    globalVideo.play();
-                    playBtn.textBlock.text = "⏸ Pause";
-                } else {
-                    globalVideo.pause();
-                    playBtn.textBlock.text = "▶ Play";
-                }
-            });
-            panel.addControl(playBtn);
+    <a-box class="progress-bar"
+              width="3" height="0.3" depth="0.03"
+              material="color: #00e5ff; opacity: 0.9; transparent: true; emissive: #00e5ff; emissiveIntensity: 0.4"
+              position="-1.5 0 0.02"
+              scale="0 1 1">
+    </a-box>
 
-            // Slider
-            const slider = new BABYLON.GUI.Slider();
-            slider.minimum = 0; slider.value = 0;
-            slider.height = "40px"; slider.width = "90%";
-            slider.color = "#00FF00"; slider.background = "#444";
-            slider.onValueChangedObservable.add((value) => {
-                if (Math.abs(globalVideo.currentTime - value) > 1) globalVideo.currentTime = value;
-            });
-            panel.addControl(slider);
+    <a-box class="seek-hitbox"
+            width="3" height="0.35" depth="0.01"
+            material="opacity: 0; transparent: true"
+            position="0 0 0.05">
+    </a-box>
 
-            // --- 4. FADE LOGIC (The Magic Part) ---
-            
-            let lastInteraction = Date.now();
-            let isMenuVisible = true;
+    <a-text class="time-elapsed"
+            value="00:00"
+            font="kelsonsans"
+            color="#CCC"
+            width="1.8"
+            position="-1.5 -0.25 0"
+            align="left">
+    </a-text>
 
-            // A. Detect Interaction
-            scene.onPointerObservable.add(() => {
-                lastInteraction = Date.now();
-                if (!isMenuVisible) {
-                    // Fade In
-                    fadeInUI();
-                }
-            });
+    <a-text class="time-remaining"
+            value="-00:00"
+            font="kelsonsans"
+            color="#CCC"
+            width="1.8"
+            position="1.5 -0.25 0"
+            align="right">
+    </a-text>
+    
+  </a-entity>
 
-            // B. Animation Helpers
-            const fadeInUI = () => {
-                isMenuVisible = true;
-                plane.isPickable = true; // Enable clicking
-                BABYLON.Animation.CreateAndStartAnimation("fadeIn", plane, "visibility", 30, 15, plane.visibility, 1, 0);
-            };
+  <a-entity id="rig">
+    <a-camera><a-cursor></a-cursor></a-camera>
+    <a-entity laser-controls="hand: right" id='my-hand'></a-entity>
+  </a-entity>
 
-            const fadeOutUI = () => {
-                isMenuVisible = false;
-                plane.isPickable = false; // Disable clicking so it doesn't block view
-                BABYLON.Animation.CreateAndStartAnimation("fadeOut", plane, "visibility", 30, 15, plane.visibility, 0, 0);
-            };
-
-            // C. Check Loop
-            scene.registerBeforeRender(() => {
-                // Sync Slider
-                if (globalVideo && !globalVideo.paused) {
-                    slider.value = globalVideo.currentTime;
-                }
-
-                // Check Idle Time (3000ms = 3 seconds)
-                if (isMenuVisible && Date.now() - lastInteraction > 3000) {
-                    // Only fade out if video is actually playing (don't hide controls if paused!)
-                    if (!globalVideo.paused) {
-                        fadeOutUI();
-                    }
-                }
-            });
-
-            // D. Metadata Load
-            globalVideo.addEventListener('loadedmetadata', () => { slider.maximum = globalVideo.duration; });
-
-
-            // --- 5. XR (VR Headset Support) ---
-            try {
-                const xr = await scene.createDefaultXRExperienceAsync({ uiOptions: { sessionMode: "immersive-vr" } });
-            } catch(e) { console.log("VR not available"); }
-
-            return scene;
-        };
-
-        // --- INITIALIZATION ---
-        // We wait for user click to init engine to handle iOS Permissions
-        startBtn.addEventListener("click", async () => {
-            startScreen.style.display = "none";
-            
-            // Create scene
-            const scene = await createScene();
-            
-            // Start loop
-            engine.runRenderLoop(() => scene.render());
-            
-            // Try to play video immediately
-            if(globalVideo) globalVideo.play();
-        });
-
-        window.addEventListener("resize", () => engine.resize());
-    </script>
+</a-scene>
