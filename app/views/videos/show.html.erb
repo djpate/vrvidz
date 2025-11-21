@@ -59,6 +59,7 @@
     init: function () {
       const video = this.data.video;
       const playBtn = this.el.querySelector('.play-btn');
+      const backBtn = this.el.querySelector('.back-btn');
       const playBtnText = this.el.querySelector('.play-btn-text');
       const progressBar = this.el.querySelector('.progress-bar');
       const seekHitbox = this.el.querySelector('.seek-hitbox');
@@ -67,6 +68,11 @@
       const seekPreview = this.el.querySelector('#seek-preview-image')?.components['seek-preview'];
 
       this.isHoveringSeekbar = false;
+
+      // BACK BUTTON LOGIC
+      backBtn.addEventListener('click', () => {
+        window.location.href = "<%= gallery_path %>";
+      });
       
       // MOVEMENT TRACKING VARIABLES
       this.timer = 0;
