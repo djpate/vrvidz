@@ -10,7 +10,18 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2025_11_21_153234) do
+ActiveRecord::Schema[8.1].define(version: 2025_11_21_164729) do
+  create_table "previews", force: :cascade do |t|
+    t.integer "count"
+    t.datetime "created_at", null: false
+    t.string "filename"
+    t.integer "height"
+    t.datetime "updated_at", null: false
+    t.integer "video_id", null: false
+    t.integer "width"
+    t.index ["video_id"], name: "index_previews_on_video_id"
+  end
+
   create_table "taggings", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.integer "tag_id"
@@ -37,6 +48,7 @@ ActiveRecord::Schema[8.1].define(version: 2025_11_21_153234) do
     t.integer "view_count"
   end
 
+  add_foreign_key "previews", "videos"
   add_foreign_key "taggings", "tags"
   add_foreign_key "taggings", "videos"
 end

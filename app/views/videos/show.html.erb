@@ -7,6 +7,50 @@
             (seconds < 10 ? '0' + seconds : seconds);
   }
 
+  AFRAME.registerComponent('seek-preview', {
+    schema: {
+      previewCount: { type: 'int' },
+    },
+
+    init: function () {
+      this.previewImage = this.el;
+      this.previewImage.setAttribute('visible', false);
+      this.texture = null;
+
+      this.el.addEventListener('materialtextureloaded', () => {
+        const mesh = this.el.getObject3D('mesh');
+        if (!mesh || !mesh.material || !mesh.material.map) { return; }
+        this.texture = mesh.material.map;
+
+        this.texture.wrapS = THREE.RepeatWrapping;
+        this.texture.repeat.set(1 / this.data.previewCount, 1);
+      });
+    },
+
+    showPreview: function (event) {
+      if (!this.texture) { return; }
+
+      const point = event.detail.intersection.point;
+      const objectPosition = event.target.object3D.getWorldPosition(new THREE.Vector3());
+      const localX = point.x - objectPosition.x;
+      const hoverPercent = (localX + 1.5) / 3;
+      const clampedPercent = Math.max(0, Math.min(1, hoverPercent));
+
+      const previewIndex = Math.floor(clampedPercent * this.data.previewCount);
+      
+      this.texture.offset.x = previewIndex / this.data.previewCount;
+      
+      this.previewImage.setAttribute('visible', true);
+      
+      const newX = -1.5 + (3 * clampedPercent);
+      this.previewImage.setAttribute('position', { x: newX, y: 0.35, z: 0.05 });
+    },
+
+    hidePreview: function () {
+      this.previewImage.setAttribute('visible', false);
+    }
+  });
+
   AFRAME.registerComponent('video-controls', {
     schema: {
       video: { type: 'selector' },
@@ -20,6 +64,9 @@
       const seekHitbox = this.el.querySelector('.seek-hitbox');
       const timeElapsed = this.el.querySelector('.time-elapsed');
       const timeRemaining = this.el.querySelector('.time-remaining');
+      const seekPreview = this.el.querySelector('#seek-preview-image')?.components['seek-preview'];
+
+      this.isHoveringSeekbar = false;
       
       // MOVEMENT TRACKING VARIABLES
       this.timer = 0;
@@ -50,6 +97,16 @@
           video.currentTime = clampedPercent * video.duration;
         }
       });
+
+      if (seekPreview) {
+        seekHitbox.addEventListener('mouseenter', (e) => {
+          this.isHoveringSeekbar = true;
+        });
+        seekHitbox.addEventListener('mouseleave', () => {
+          this.isHoveringSeekbar = false;
+          seekPreview.hidePreview();
+        });
+      }
 
       // 3. STAR RATING LOGIC
       const starBoxes = this.el.querySelectorAll('.star-box');
@@ -155,6 +212,16 @@
             timeRemaining.setAttribute('value', remStr);
           }
         }
+        
+        // --- D. SEEK PREVIEW UPDATE ---
+        if (this.isHoveringSeekbar && seekPreview) {
+          const raycasterEl = this.el.sceneEl.querySelector('[raycaster]');
+          const raycaster = raycasterEl.components.raycaster;
+          const intersection = raycaster.getIntersection(seekHitbox);
+          if (intersection) {
+            seekPreview.showPreview({ detail: { intersection: intersection } , target: seekHitbox });
+          }
+        }
       }
     }
   });
@@ -164,6 +231,9 @@
     <video id="my-video" 
             src="/videos/<%= @video.filename %>"
             crossorigin="anonymous" loop="true"></video>
+    <% if @video.previews.any? %>
+      <img id="preview-sprite" src="/videos/<%= @video.previews.first.filename %>">
+    <% end %>
   </a-assets>
 
   <a-videosphere src="#my-video" rotation="0 -90 0"></a-videosphere>
@@ -213,6 +283,15 @@
             material="opacity: 0; transparent: true"
             position="0 0 0.05">
     </a-box>
+
+    <% if @video.previews.any? %>
+      <% preview = @video.previews.first %>
+      <a-image id="seek-preview-image"
+               width="0.4" height="0.225"
+               material="shader: flat; src: #preview-sprite;"
+               seek-preview='previewCount: <%= preview.count %>;'>
+      </a-image>
+    <% end %>
 
     <a-text class="time-elapsed"
             value="00:00"

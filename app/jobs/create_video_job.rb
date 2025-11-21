@@ -14,14 +14,6 @@ class CreateVideoJob < ApplicationJob
       checksum: checksum
     )
 
-    generate_screenshots(video)
-  end
-
-  def generate_screenshots(video)
-    10.times do |i|
-      screenshot_path = File.join(Rails.root, 'public', 'screenshots', "#{video.checksum}_thumb_#{i}.png")
-      timestamp = (i + 1) * (video.duration / 11)
-      `ffmpeg -ss #{timestamp} -i "#{video.filepath}" -vframes 1 -q:v 2 "#{screenshot_path}"`
-    end
+    GeneratePreviewsJob.perform_later(video.id)
   end
 end
