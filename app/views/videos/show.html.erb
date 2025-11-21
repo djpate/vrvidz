@@ -51,7 +51,61 @@
         }
       });
 
-      // 3. MAIN LOOP (Runs 90 times per second)
+      // 3. STAR RATING LOGIC
+      const starBoxes = this.el.querySelectorAll('.star-box');
+      starBoxes.forEach((starBox) => {
+        starBox.addEventListener('click', (e) => {
+          const rating = parseInt(starBox.getAttribute('data-star'));
+          this.updateStarRating(rating);
+        });
+
+        starBox.addEventListener('mouseenter', () => {
+          const rating = parseInt(starBox.getAttribute('data-star'));
+          this.highlightStars(rating);
+        });
+
+        starBox.addEventListener('mouseleave', () => {
+          const currentRating = this.getCurrentRating();
+          this.highlightStars(currentRating);
+        });
+      });
+
+      this.updateStarRating = function(rating) {
+        // Update visuals immediately
+        this.highlightStars(rating);
+
+        // Save to server
+        const videoId = '<%= @video.checksum %>';
+        fetch(`/vids/${videoId}/rate`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
+          },
+          body: JSON.stringify({ rating })
+        }).catch(error => console.error('Error saving rating:', error));
+      };
+
+      this.highlightStars = function(rating) {
+        starBoxes.forEach((starBox, index) => {
+          const starNumber = index + 1;
+          const starText = starBox.querySelector('a-text');
+
+          if (starNumber <= rating) {
+            starBox.setAttribute('material', 'color: #FFD700; opacity: 0.9; transparent: true');
+            starText.setAttribute('color', '#FFD700');
+          } else {
+            starBox.setAttribute('material', 'color: #444; opacity: 0.9; transparent: true');
+            starText.setAttribute('color', '#888');
+          }
+        });
+      };
+
+      this.getCurrentRating = function() {
+        return <%= @video.rating || 0 %>;
+      };
+
+      // 4. MAIN LOOP (Runs 90 times per second)
      this.tick = function (t, dt) {
         // --- A. INTELLIGENT TRACKING SWITCHER ---
         // default to Camera (for desktop mouse testing)
@@ -177,6 +231,24 @@
             position="1.5 -0.25 0"
             align="right">
     </a-text>
+
+    <!-- Star Rating -->
+    <a-entity class="star-rating-vr" position="0 -0.7 0">
+      <% (1..5).each_with_index do |star, index| %>
+        <a-box class="star-box"
+               data-star="<%= star %>"
+               width="0.15" height="0.15" depth="0.05"
+               material="color: <%= @video.rating && @video.rating >= star ? '#FFD700' : '#444' %>; opacity: 0.9; transparent: true"
+               position="<%= -0.4 + (index * 0.2) %> 0 0">
+          <a-text value="★"
+                  font="kelsonsans"
+                  align="center"
+                  width="3"
+                  color="<%= @video.rating && @video.rating >= star ? '#FFD700' : '#888' %>"
+                  position="0 0 0.06"></a-text>
+        </a-box>
+      <% end %>
+    </a-entity>
     
   </a-entity>
 

@@ -11,8 +11,12 @@ Rails.application.routes.draw do
 
   # Defines the root path route ("/")
 
-  resources :vids, only: [:show], controller: 'videos'
-  resource :gallery, only: [:show]
+  resources :vids, only: [:show], controller: 'videos' do
+    member do
+      patch :rate
+    end
+  end
+  resource :gallery, only: [:show, :update]
 
-  root "gallery#show"
+  root "galleries#show"
 end
