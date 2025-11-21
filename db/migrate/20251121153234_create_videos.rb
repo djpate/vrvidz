@@ -1,10 +1,12 @@
 class CreateVideos < ActiveRecord::Migration[8.1]
   def change
     create_table :videos do |t|
-      t.string :string
+      t.string :title
+      t.string :filename
       t.integer :duration
       t.integer :rating
       t.integer :view_count
+      t.string :checksum
       t.timestamps
     end
 

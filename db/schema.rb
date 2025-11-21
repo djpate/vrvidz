@@ -27,10 +27,12 @@ ActiveRecord::Schema[8.1].define(version: 2025_11_21_153234) do
   end
 
   create_table "videos", force: :cascade do |t|
+    t.string "checksum"
     t.datetime "created_at", null: false
     t.integer "duration"
+    t.string "filename"
     t.integer "rating"
-    t.string "string"
+    t.string "title"
     t.datetime "updated_at", null: false
     t.integer "view_count"
   end
